@@ -14,6 +14,11 @@ export interface VerifyOtpInput {
   otp: string;
 }
 
+export interface GobizPasswordLoginInput {
+  email: string;
+  password: string;
+}
+
 export interface GobizTokenResult {
   accessToken: string;
   refreshToken?: string;

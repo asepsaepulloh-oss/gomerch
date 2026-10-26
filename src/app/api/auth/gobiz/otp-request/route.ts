@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
       success: true,
       message: result.message,
       phone_masked: normalized.phone_masked,
+      otp_token: result.otpToken || null,
       expires_in_seconds: result.expiresInSeconds,
     });
   } catch (err: any) {

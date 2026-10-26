@@ -5,6 +5,33 @@ import { normalizeIndonesianPhone } from "@/server/utils/phone-normalizer";
 import { encryptToken } from "@/server/security/token-encryption";
 import { db } from "@/server/db/unified-db";
 
+export async function GET(req: NextRequest) {
+  try {
+    const user = await getDashboardSessionUser();
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
+    const connection = await db.connections.getByOwnerId(user.id);
+    return NextResponse.json({
+      success: true,
+      data: connection
+        ? {
+            id: connection.id,
+            status: connection.status,
+            merchant_id: connection.merchant_id,
+            merchant_name: connection.merchant_name,
+            phone_masked: connection.phone_masked,
+            token_expires_at: connection.token_expires_at,
+            connected_at: connection.updated_at,
+          }
+        : null,
+    });
+  } catch (err: any) {
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const user = await getDashboardSessionUser();
@@ -18,6 +45,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const rawPhone = body.phone_number;
     const otp = body.otp;
+    const otpToken = body.otp_token;
 
     if (!rawPhone || !otp) {
       return NextResponse.json(
@@ -33,6 +61,7 @@ export async function POST(req: NextRequest) {
     const tokenResult = await adapter.verifyOtp({
       phone_number: normalized.phone_number,
       otp,
+      otpToken,
     });
 
     // 2. Encrypt tokens using AES-256-GCM
@@ -53,7 +82,11 @@ export async function POST(req: NextRequest) {
         merchantName: resolved.merchantName,
       };
     } catch {
-      // If merchant resolve fails, still connect with identified profile
+      // Fallback if merchant search has delayed indexing
+      merchantInfo = {
+        merchantId: `GBZ-${normalized.phone_number.slice(-6)}`,
+        merchantName: `Outlet GoBiz (+62${normalized.phone_number})`,
+      };
     }
 
     // 4. Save connection record in database
@@ -73,7 +106,7 @@ export async function POST(req: NextRequest) {
     });
 
     // 5. Audit log
-    await db.audit.log("CONNECT_GOBIZ", user.id, {
+    await db.audit.log("CONNECT_GOBIZ_OTP", user.id, {
       merchantId: merchantInfo.merchantId,
       phoneMasked: normalized.phone_masked,
     });

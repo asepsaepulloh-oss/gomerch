@@ -8,9 +8,11 @@ import {
   RefreshCw,
   Unlink,
   AlertCircle,
-  Clock,
   ArrowRight,
   ShieldAlert,
+  Mail,
+  Lock,
+  KeyRound,
 } from "lucide-react";
 
 export default function GobizConnectionPage() {
@@ -18,21 +20,31 @@ export default function GobizConnectionPage() {
   const [submitting, setSubmitting] = useState(false);
   const [connection, setConnection] = useState<any>(null);
 
-  // Form states
+  // Tab: 'otp' | 'password'
+  const [method, setMethod] = useState<"otp" | "password">("otp");
+
+  // OTP Form states
   const [step, setStep] = useState<"phone" | "otp">("phone");
   const [phoneNumber, setPhoneNumber] = useState("081234567890");
   const [otp, setOtp] = useState("123456");
+  const [otpToken, setOtpToken] = useState<string | null>(null);
   const [maskedPhone, setMaskedPhone] = useState("");
+
+  // Password Form states
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const fetchConnection = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/gobiz/otp-verify"); // Or general status check
-      // For dashboard display we can check connection
-      const overviewRes = await fetch("/api/v1/payments"); // check auth
-      // Let's set connection based on latest DB or initial load
+      const res = await fetch("/api/auth/gobiz/status");
+      const data = await res.json();
+      if (data.success && data.data) {
+        setConnection(data.data);
+      }
     } catch {
     } finally {
       setLoading(false);
@@ -62,6 +74,7 @@ export default function GobizConnectionPage() {
       }
 
       setMaskedPhone(data.phone_masked);
+      setOtpToken(data.otp_token);
       setSuccessMsg(data.message || "Kode OTP telah dikirim.");
       setStep("otp");
     } catch (err: any) {
@@ -84,6 +97,7 @@ export default function GobizConnectionPage() {
         body: JSON.stringify({
           phone_number: phoneNumber,
           otp,
+          otp_token: otpToken,
         }),
       });
 
@@ -93,8 +107,37 @@ export default function GobizConnectionPage() {
       }
 
       setConnection(data.data);
-      setSuccessMsg("Akun GoBiz berhasil terhubung!");
+      setSuccessMsg("Akun GoBiz berhasil terhubung via OTP!");
       setStep("phone");
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handlePasswordLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccessMsg(null);
+    setSubmitting(true);
+
+    try {
+      const res = await fetch("/api/auth/gobiz/password-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Login GoBiz gagal.");
+      }
+
+      setConnection(data.data);
+      setSuccessMsg("Akun GoBiz berhasil terhubung via Email & Password!");
+      setEmail("");
+      setPassword("");
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -142,7 +185,7 @@ export default function GobizConnectionPage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Koneksi Merchant GoBiz</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Hubungkan akun merchant GoBiz melalui verifikasi OTP resmi untuk sinkronisasi mutasi dan riwayat pembayaran QRIS.
+          Hubungkan akun merchant GoBiz melalui verifikasi OTP (Nomor HP) atau Email & Password resmi untuk sinkronisasi mutasi dan riwayat pembayaran QRIS.
         </p>
       </div>
 
@@ -161,8 +204,8 @@ export default function GobizConnectionPage() {
         </div>
       )}
 
-      {/* Connection Card */}
-      {connection ? (
+      {/* Connection Card if Connected */}
+      {connection && connection.status === "CONNECTED" ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-xs">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-100 gap-4">
             <div className="flex items-center gap-3.5">
@@ -202,11 +245,11 @@ export default function GobizConnectionPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 text-xs">
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-              <div className="text-slate-400 font-medium">Nomor HP Terhubung</div>
+              <div className="text-slate-400 font-medium">Akun Terhubung</div>
               <div className="font-mono text-slate-900 font-semibold text-sm mt-1">
                 {connection.phone_masked}
               </div>
-              <div className="text-[11px] text-slate-500 mt-1">Nomor tersimpan secara aman & disamarkan</div>
+              <div className="text-[11px] text-slate-500 mt-1">Tersimpan secara aman & disamarkan</div>
             </div>
 
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
@@ -219,11 +262,11 @@ export default function GobizConnectionPage() {
             </div>
 
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-              <div className="text-slate-400 font-medium">Status Masa Berlaku</div>
+              <div className="text-slate-400 font-medium">Status Sinkronisasi</div>
               <div className="font-mono text-slate-900 font-semibold text-sm mt-1">
-                Aktif (Auto-Refresh)
+                {connection.last_sync_at ? new Date(connection.last_sync_at).toLocaleTimeString("id-ID") : "Belum sync"}
               </div>
-              <div className="text-[11px] text-slate-500 mt-1">Diperbarui otomatis oleh worker</div>
+              <div className="text-[11px] text-slate-500 mt-1">Diperbarui via background worker</div>
             </div>
           </div>
         </div>
@@ -231,105 +274,207 @@ export default function GobizConnectionPage() {
         /* Unconnected / Connect Form */
         <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-xs">
           <div className="max-w-md mx-auto">
-            <div className="text-center mb-6">
-              <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-3 shadow-inner">
-                <Smartphone className="w-6 h-6" />
-              </div>
-              <h2 className="text-lg font-bold text-slate-900">Hubungkan Akun GoBiz</h2>
-              <p className="text-xs text-slate-500 mt-1">
-                Masukkan nomor ponsel yang terdaftar pada aplikasi GoBiz Merchant.
-              </p>
+            {/* Login Method Selector Tabs */}
+            <div className="flex p-1 bg-slate-100 rounded-xl mb-6">
+              <button
+                type="button"
+                onClick={() => {
+                  setMethod("otp");
+                  setError(null);
+                }}
+                className={`flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  method === "otp"
+                    ? "bg-white text-indigo-600 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>Nomor HP + OTP</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMethod("password");
+                  setError(null);
+                }}
+                className={`flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  method === "password"
+                    ? "bg-white text-indigo-600 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>Email & Password</span>
+              </button>
             </div>
 
-            {/* Step 1: Input Phone */}
-            {step === "phone" ? (
-              <form onSubmit={handleRequestOtp} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
-                    Nomor Handphone Merchant
-                  </label>
-                  <div className="relative">
-                    <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-xs font-bold text-slate-400 pointer-events-none">
-                      +62
-                    </span>
-                    <input
-                      type="tel"
-                      required
-                      value={phoneNumber}
-                      onChange={(e) => setPhoneNumber(e.target.value)}
-                      placeholder="812-3456-7890"
-                      className="w-full pl-12 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
-                    />
+            {/* METHOD 1: OTP */}
+            {method === "otp" && (
+              <>
+                <div className="text-center mb-6">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-3 shadow-inner">
+                    <Smartphone className="w-6 h-6" />
                   </div>
-                  <p className="text-[11px] text-slate-500 mt-1.5">
-                    Mendukung format: 0812..., 62812..., atau +62812...
+                  <h2 className="text-lg font-bold text-slate-900">Hubungkan via Nomor HP (OTP)</h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Masukkan nomor ponsel yang terdaftar pada aplikasi GoBiz Merchant.
                   </p>
                 </div>
 
-                <div className="p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl text-xs text-indigo-900">
-                  <div className="font-semibold mb-0.5">Sandbox Mode Tips:</div>
-                  Gunakan nomor demo <code className="font-mono bg-white px-1.5 py-0.5 rounded border border-indigo-200">081234567890</code> dan OTP <code className="font-mono bg-white px-1.5 py-0.5 rounded border border-indigo-200">123456</code> untuk simulasi instan.
+                {step === "phone" ? (
+                  <form onSubmit={handleRequestOtp} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
+                        Nomor Handphone Merchant
+                      </label>
+                      <div className="relative">
+                        <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-xs font-bold text-slate-400 pointer-events-none">
+                          +62
+                        </span>
+                        <input
+                          type="tel"
+                          required
+                          value={phoneNumber}
+                          onChange={(e) => setPhoneNumber(e.target.value)}
+                          placeholder="812-3456-7890"
+                          className="w-full pl-12 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                        />
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1.5">
+                        Format didukung: 0812..., 62812..., atau +62812...
+                      </p>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={submitting}
+                      className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      {submitting ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <>
+                          <span>Kirim Kode OTP</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </>
+                      )}
+                    </button>
+                  </form>
+                ) : (
+                  <form onSubmit={handleVerifyOtp} className="space-y-4">
+                    <div className="text-center p-3 bg-slate-50 rounded-xl border border-slate-100 mb-2">
+                      <span className="text-xs text-slate-500">Kode verifikasi dikirim ke:</span>
+                      <div className="font-mono font-bold text-slate-800 text-sm mt-0.5">{maskedPhone}</div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
+                        Masukkan 6 Digit OTP
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        maxLength={6}
+                        value={otp}
+                        onChange={(e) => setOtp(e.target.value)}
+                        placeholder="123456"
+                        className="w-full text-center tracking-widest text-xl font-mono py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                      />
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setStep("phone")}
+                        className="flex-1 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-all"
+                      >
+                        Ubah Nomor
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={submitting}
+                        className="flex-1 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                      >
+                        {submitting ? (
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <span>Verifikasi OTP</span>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </>
+            )}
+
+            {/* METHOD 2: EMAIL & PASSWORD */}
+            {method === "password" && (
+              <>
+                <div className="text-center mb-6">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-3 shadow-inner">
+                    <Lock className="w-6 h-6" />
+                  </div>
+                  <h2 className="text-lg font-bold text-slate-900">Hubungkan via Email & Password</h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Gunakan kredensial akun GoBiz Merchant Portal Anda.
+                  </p>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 transition-all cursor-pointer"
-                >
-                  {submitting ? (
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <>
-                      <span>Kirim Kode OTP</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
-              </form>
-            ) : (
-              /* Step 2: Input OTP */
-              <form onSubmit={handleVerifyOtp} className="space-y-4">
-                <div className="text-center p-3 bg-slate-50 rounded-xl border border-slate-100 mb-2">
-                  <span className="text-xs text-slate-500">Kode verifikasi telah dikirim ke:</span>
-                  <div className="font-mono font-bold text-slate-800 text-sm mt-0.5">{maskedPhone}</div>
-                </div>
+                <form onSubmit={handlePasswordLogin} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
+                      Email Merchant GoBiz
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                        <Mail className="w-4 h-4" />
+                      </div>
+                      <input
+                        type="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="merchant@gobiz.co.id"
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                      />
+                    </div>
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
-                    Masukkan 6 Digit OTP
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    maxLength={6}
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value)}
-                    placeholder="123456"
-                    className="w-full text-center tracking-widest text-xl font-mono py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
-                  />
-                </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
+                      Password GoBiz
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                        <Lock className="w-4 h-4" />
+                      </div>
+                      <input
+                        type="password"
+                        required
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="••••••••••••"
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                      />
+                    </div>
+                  </div>
 
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setStep("phone")}
-                    className="flex-1 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-all"
-                  >
-                    Ubah Nomor
-                  </button>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="flex-1 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 transition-all cursor-pointer"
                   >
                     {submitting ? (
                       <RefreshCw className="w-4 h-4 animate-spin" />
                     ) : (
-                      <span>Verifikasi & Hubungkan</span>
+                      <>
+                        <span>Masuk & Hubungkan GoBiz</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
                     )}
                   </button>
-                </div>
-              </form>
+                </form>
+              </>
             )}
           </div>
         </div>
@@ -344,7 +489,7 @@ export default function GobizConnectionPage() {
         <ul className="list-disc pl-5 space-y-1 leading-relaxed text-slate-600">
           <li>Sesi dashboard dan koneksi GoBiz memiliki siklus hidup (lifecycle) yang terpisah secara independen.</li>
           <li>Token GoBiz dienkripsi di server menggunakan AES-256-GCM dengan initialization vector (IV) unik dan tidak pernah dikirim ke frontend.</li>
-          <li>Identitas merchant diverifikasi melalui endpoint resmi GoBiz, bukan mempercayai input manual.</li>
+          <li>Identitas merchant didapatkan langsung dari API GoBiz resmi (ID & nama outlet tervalidasi).</li>
         </ul>
       </div>
     </div>

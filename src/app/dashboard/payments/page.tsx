@@ -54,44 +54,38 @@ export default function PaymentsPage() {
   const fetchOrdersAndKey = async () => {
     setLoading(true);
     try {
-      // 1. Ensure or fetch an API key for the dashboard user
+      // 1. Fetch payments directly via authenticated dashboard session
+      const paymentsRes = await fetch("/api/dashboard/payments?limit=100");
+      const paymentsData = await paymentsRes.json();
+      if (paymentsData.success) {
+        setOrders(paymentsData.data.map((p: any) => ({
+          id: p.payment_id,
+          external_id: p.external_id,
+          amount: p.amount,
+          currency: p.currency,
+          status: p.status,
+          description: p.description,
+          created_at: p.created_at,
+          paid_at: p.paid_at,
+          payment_window_end: p.expires_at,
+        })));
+      }
+
+      // 2. Fetch or create API key for public API integration
       const keysRes = await fetch("/api/dashboard/api-keys");
       const keysData = await keysRes.json();
       let activeKey = keysData.data?.[0]?.api_key;
 
-      if (!activeKey) {
-        // Create a default sandbox key automatically if none exists
+      if (!activeKey && keysData.data?.length === 0) {
         const createKeyRes = await fetch("/api/dashboard/api-keys", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: "Dashboard Key", environment: "sandbox" }),
+          body: JSON.stringify({ name: "Default Key", environment: "sandbox" }),
         });
         const createKeyData = await createKeyRes.json();
         activeKey = createKeyData.data?.api_key;
       }
-
-      setApiKey(activeKey);
-
-      // 2. Fetch payments using API key
-      if (activeKey) {
-        const paymentsRes = await fetch("/api/v1/payments?limit=100", {
-          headers: { Authorization: `Bearer ${activeKey}` },
-        });
-        const paymentsData = await paymentsRes.json();
-        if (paymentsData.success) {
-          setOrders(paymentsData.data.map((p: any) => ({
-            id: p.payment_id,
-            external_id: p.external_id,
-            amount: p.amount,
-            currency: p.currency,
-            status: p.status,
-            description: p.description,
-            created_at: p.created_at,
-            paid_at: p.paid_at,
-            payment_window_end: p.expires_at,
-          })));
-        }
-      }
+      setApiKey(activeKey || null);
     } catch {
     } finally {
       setLoading(false);
