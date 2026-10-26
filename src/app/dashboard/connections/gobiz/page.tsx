@@ -289,7 +289,7 @@ export default function GobizConnectionPage() {
                 }`}
               >
                 <Smartphone className="w-3.5 h-3.5" />
-                <span>Nomor HP + OTP</span>
+                <span>Nomor HP + OTP (Direkomendasikan)</span>
               </button>
               <button
                 type="button"

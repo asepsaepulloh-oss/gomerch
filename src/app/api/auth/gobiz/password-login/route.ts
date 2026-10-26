@@ -27,15 +27,36 @@ export async function POST(req: NextRequest) {
 
     const adapter = new GobizAdapter();
 
-    // 1. Authenticate with GoBiz credentials
-    const tokenResult = await adapter.loginWithPassword(email, password);
+    // Authenticate with GoBiz credentials
+    let tokenResult;
+    try {
+      tokenResult = await adapter.loginWithPassword(email, password);
+    } catch (authErr: any) {
+      const msg = authErr.message || "";
+      // Provide clear guidance if GoBiz security blocks password login
+      if (
+        msg.includes("Kamu tidak dapat melakukan log in") ||
+        msg.includes("tidak dapat melakukan") ||
+        msg.includes("blocked")
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "GoBiz membatasi login Password untuk akun ini (kebijakan keamanan GoBiz mengharuskan autentikasi 2FA). Silakan gunakan tab 'Nomor HP + OTP' di atas untuk masuk langsung dengan kode SMS/WhatsApp.",
+          },
+          { status: 400 }
+        );
+      }
+      return NextResponse.json({ success: false, error: msg }, { status: 400 });
+    }
 
-    // 2. Encrypt tokens via AES-256-GCM
+    // Encrypt tokens via AES-256-GCM
     const accessTokenEnc = encryptToken(tokenResult.accessToken);
     const refreshTokenEnc = tokenResult.refreshToken ? encryptToken(tokenResult.refreshToken) : null;
     const tokenExpiresAt = new Date(Date.now() + (tokenResult.expiresIn || 86400) * 1000).toISOString();
 
-    // 3. Resolve Merchant Profile
+    // Resolve Merchant Profile
     let merchantInfo = {
       merchantId: "GBZ-MCH-001",
       merchantName: "Merchant GoBiz",
@@ -58,7 +79,7 @@ export async function POST(req: NextRequest) {
     const emailParts = email.split("@");
     const maskedEmail = `${emailParts[0].slice(0, 3)}***@${emailParts[1] || "gobiz.co.id"}`;
 
-    // 4. Save connection state in PostgreSQL
+    // Save connection state in PostgreSQL
     const connection = await db.connections.upsert({
       owner_id: user.id,
       provider: "gobiz",
@@ -73,7 +94,7 @@ export async function POST(req: NextRequest) {
       last_error_code: null,
     });
 
-    // 5. Audit log
+    // Audit log
     await db.audit.log("CONNECT_GOBIZ_PASSWORD", user.id, {
       merchantId: merchantInfo.merchantId,
       emailMasked: maskedEmail,
