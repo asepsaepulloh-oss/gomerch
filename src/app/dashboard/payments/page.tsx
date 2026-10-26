@@ -98,18 +98,15 @@ export default function PaymentsPage() {
 
   const handleCreatePayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!apiKey) return;
     setCreating(true);
     setErrorMsg(null);
 
     try {
-      const idempotencyKey = `idemp_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-      const res = await fetch("/api/v1/qris/create", {
+      // Create payment directly using authenticated dashboard session
+      const res = await fetch("/api/dashboard/payments", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
-          "Idempotency-Key": idempotencyKey,
         },
         body: JSON.stringify({
           external_id: newExternalId,

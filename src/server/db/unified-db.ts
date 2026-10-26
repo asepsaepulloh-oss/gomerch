@@ -20,6 +20,7 @@ export interface DBMerchantConnection {
   refresh_token_enc: any | null;
   token_expires_at: string | null;
   status: "NOT_CONNECTED" | "OTP_PENDING" | "CONNECTED" | "TOKEN_EXPIRED" | "REAUTH_REQUIRED" | "CONNECTION_ERROR";
+  static_qr_string: string | null;
   last_sync_at: string | null;
   last_error_code: string | null;
   created_at: string;
@@ -174,8 +175,9 @@ export const db = {
                status = COALESCE($9, status),
                last_sync_at = COALESCE($10, last_sync_at),
                last_error_code = COALESCE($11, last_error_code),
-               updated_at = $12
-           WHERE id = $13
+               static_qr_string = COALESCE($12, static_qr_string),
+               updated_at = $13
+           WHERE id = $14
            RETURNING *`,
           [
             record.provider || null,
@@ -189,6 +191,7 @@ export const db = {
             record.status || null,
             record.last_sync_at || null,
             record.last_error_code || null,
+            record.static_qr_string || null,
             now,
             existing.id,
           ]
@@ -200,8 +203,8 @@ export const db = {
           `INSERT INTO public.merchant_connections (
              id, owner_id, provider, merchant_id, merchant_name,
              country_code, phone_masked, access_token_enc, refresh_token_enc,
-             token_expires_at, status, last_sync_at, last_error_code, created_at, updated_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+             token_expires_at, status, last_sync_at, last_error_code, static_qr_string, created_at, updated_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
            RETURNING *`,
           [
             id,
@@ -217,6 +220,7 @@ export const db = {
             record.status || "NOT_CONNECTED",
             record.last_sync_at || null,
             record.last_error_code || null,
+            record.static_qr_string || null,
             now,
             now,
           ]

@@ -165,6 +165,7 @@ export async function POST(req: NextRequest) {
       description: input.description,
       merchantId: connection?.merchant_id || "GBZ-MCH-001",
       merchantName: connection?.merchant_name || "Merchant Gateway",
+      staticQR: connection?.static_qr_string || undefined,
       expiresInSeconds: input.expires_in_seconds || 900,
     });
 

@@ -41,6 +41,10 @@ export default function GobizConnectionPage() {
   // JSON Import state
   const [jsonInput, setJsonInput] = useState("");
 
+  // Static QRIS state
+  const [staticQrInput, setStaticQrInput] = useState("");
+  const [savingStaticQr, setSavingStaticQr] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
@@ -51,6 +55,9 @@ export default function GobizConnectionPage() {
       const data = await res.json();
       if (data.success && data.data) {
         setConnection(data.data);
+        if (data.data.static_qr_string) {
+          setStaticQrInput(data.data.static_qr_string);
+        }
       }
     } catch {
     } finally {
@@ -181,6 +188,33 @@ export default function GobizConnectionPage() {
       setError(err.message);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleSaveStaticQr = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccessMsg(null);
+    setSavingStaticQr(true);
+
+    try {
+      const res = await fetch("/api/auth/gobiz/save-static-qr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ static_qr_string: staticQrInput }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Gagal menyimpan string QRIS Statis.");
+      }
+
+      setSuccessMsg(data.message);
+      fetchConnection();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSavingStaticQr(false);
     }
   };
 
@@ -346,6 +380,41 @@ export default function GobizConnectionPage() {
               </div>
               <div className="text-[11px] text-slate-500 mt-1">Diperbarui via background worker</div>
             </div>
+          </div>
+
+          {/* Static QRIS Template Card */}
+          <div className="mt-6 pt-6 border-t border-slate-100">
+            <div className="flex items-center gap-2 mb-2">
+              <KeyRound className="w-4 h-4 text-indigo-600" />
+              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                Pengaturan String QRIS Statis GoBiz (Template Generator Dinamis)
+              </h3>
+            </div>
+            <p className="text-[11px] text-slate-500 mb-3 leading-relaxed">
+              Masukkan string QRIS Statis GoBiz outlet Anda (dimulai dari <code className="font-mono bg-slate-100 px-1 py-0.5 rounded">000201...</code>). Sistem akan mengonversinya secara otomatis menjadi <strong>QRIS Dinamis resmi</strong> dengan nominal & nomor pesanan setiap kali Anda membuat tagihan.
+            </p>
+
+            <form onSubmit={handleSaveStaticQr} className="space-y-3">
+              <textarea
+                rows={3}
+                value={staticQrInput}
+                onChange={(e) => setStaticQrInput(e.target.value)}
+                placeholder="00020101021126600014ID.CO.QRIS.WWW01189360052300000000000215G883011234567890303UME51440014ID.LINKAJA.WWW..."
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-[11px] text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                type="submit"
+                disabled={savingStaticQr}
+                className="py-2 px-4 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                {savingStaticQr ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                )}
+                <span>Simpan String QRIS Statis Outlet</span>
+              </button>
+            </form>
           </div>
         </div>
       ) : (

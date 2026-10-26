@@ -5,6 +5,7 @@ export interface CreatePaymentInput {
   description?: string;
   merchantId?: string;
   merchantName?: string;
+  staticQR?: string; // GoBiz Static QRIS string from merchant settings
   expiresInSeconds?: number;
 }
 

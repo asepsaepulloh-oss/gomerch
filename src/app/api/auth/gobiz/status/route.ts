@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
         merchant_id: connection.merchant_id,
         merchant_name: connection.merchant_name,
         phone_masked: connection.phone_masked,
+        static_qr_string: connection.static_qr_string || null,
         token_expires_at: connection.token_expires_at,
         connected_at: connection.updated_at,
         last_sync_at: connection.last_sync_at,

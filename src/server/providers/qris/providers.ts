@@ -40,6 +40,7 @@ export class SandboxQrisProvider implements QrisPaymentProvider {
       merchantId: input.merchantId || "MCH-DEMO-001",
       amount: input.amount,
       billNumber: input.externalId,
+      staticQR: input.staticQR,
     });
 
     let qrImageUrl: string | undefined;
@@ -280,6 +281,8 @@ let sandboxProviderInstance: SandboxQrisProvider | null = null;
 let productionProviderInstance: ProductionQrisProvider | null = null;
 
 export function getQrisProvider(preferSandbox = false): QrisPaymentProvider {
+  // If production QRIS provider credentials are not explicitly filled in .env,
+  // gracefully fall back to EMVCo dynamic QRIS generator so user can create & see QRIS instantly
   if (preferSandbox || process.env.QRIS_PROVIDER === "sandbox" || !process.env.QRIS_PROVIDER_API_KEY) {
     if (!sandboxProviderInstance) {
       sandboxProviderInstance = new SandboxQrisProvider();
