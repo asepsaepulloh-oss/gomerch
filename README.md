@@ -26,7 +26,7 @@ Sistem dibangun berdasarkan aturan fundamental:
 
 - **Framework:** Next.js 16 (App Router), React 19, TypeScript (Strict Mode)
 - **Styling & UI:** Tailwind CSS, Lucide React Icons
-- **Database & Auth:** Supabase Auth, PostgreSQL dengan Row Level Security (RLS)
+- **Database & Auth:** Direct PostgreSQL Connection (`DATABASE_URL`), Native Session Authentication (PBKDF2 SHA-512 password hash, AES-256-GCM encrypted cookies)
 - **Security & Cryptography:** Node.js `node:crypto` (AES-256-GCM 96-bit IV, HMAC-SHA256, SHA-256 hashing)
 - **Validation:** Zod Schema Validation
 - **QR Generation:** EMVCo TLV Generator + CRC16-CCITT + QRCode renderer

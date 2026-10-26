@@ -2,8 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, Bell, Shield, RefreshCw } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import { LogOut, RefreshCw } from "lucide-react";
 
 export function DashboardTopbar({
   userEmail = "merchant@demo.local",
@@ -17,10 +16,10 @@ export function DashboardTopbar({
 
   const handleLogout = async () => {
     try {
-      const supabase = createClient();
-      await supabase.auth.signOut();
+      await fetch("/api/auth/logout", { method: "POST" });
     } catch {}
     router.push("/login");
+    router.refresh();
   };
 
   const handleQuickSync = async () => {
@@ -36,7 +35,6 @@ export function DashboardTopbar({
 
   return (
     <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between sticky top-0 z-20">
-      {/* Left title & quick sync */}
       <div className="flex items-center gap-4">
         <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-md border border-indigo-100/80">
           QRIS Engine v1.0
@@ -52,7 +50,6 @@ export function DashboardTopbar({
         </button>
       </div>
 
-      {/* Right User & Actions */}
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-3 pr-2 border-r border-slate-200">
           <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 font-bold text-xs flex items-center justify-center">

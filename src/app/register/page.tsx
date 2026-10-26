@@ -4,7 +4,6 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, ShieldCheck, Lock, Mail, User, ArrowRight } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -26,35 +25,21 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      const supabase = createClient();
-      const { error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: fullName,
-          },
-        },
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, fullName }),
       });
 
-      if (signUpError) {
-        // If Supabase not configured in local sandbox
-        if (
-          signUpError.message.includes("fetch failed") ||
-          !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-          process.env.NEXT_PUBLIC_SUPABASE_URL.includes("dummy-project")
-        ) {
-          router.push("/dashboard");
-          return;
-        }
-        setError(signUpError.message);
-        setLoading(false);
-        return;
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Gagal mendaftarkan akun.");
       }
 
       router.push("/dashboard");
-    } catch {
-      router.push("/dashboard");
+      router.refresh();
+    } catch (err: any) {
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -155,7 +140,7 @@ export default function RegisterPage() {
               className="mt-1 rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-indigo-500"
             />
             <label htmlFor="terms" className="text-xs text-slate-400 leading-relaxed cursor-pointer">
-              Saya menyetujui Ketentuan Layanan, Kebijakan Privasi, dan standar keamanan data transaksi merchant.
+              Saya menyetujui Ketentuan Layanan dan Kebijakan Privasi platform pembayaran.
             </label>
           </div>
 

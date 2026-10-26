@@ -1,66 +1,31 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+
+export const SESSION_COOKIE_NAME = "qris_session_token";
 
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
-  // Let API v1 and Cron routes pass directly to their own token handlers
   if (path.startsWith("/api/v1") || path.startsWith("/api/cron")) {
     return NextResponse.next();
   }
 
-  let response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
-  });
+  const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
+  const isAuthPage = path === "/login" || path === "/register" || path === "/forgot-password";
+  const isDashboardPage = path.startsWith("/dashboard");
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  // If Supabase credentials are dummy/unconfigured, allow local sandbox demo mode
-  if (!supabaseUrl || !anonKey || supabaseUrl.includes("dummy-project")) {
-    return response;
+  // If user visits /dashboard without session cookie, redirect to login
+  if (isDashboardPage && !token) {
+    const redirectUrl = new URL("/login", request.url);
+    redirectUrl.searchParams.set("next", path);
+    return NextResponse.redirect(redirectUrl);
   }
 
-  try {
-    const supabase = createServerClient(supabaseUrl, anonKey, {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          response = NextResponse.next({
-            request,
-          });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
-          );
-        },
-      },
-    });
-
-    const { data: { user } } = await supabase.auth.getUser();
-
-    // Route Protection
-    const isAuthPage = path === "/login" || path === "/register" || path === "/forgot-password";
-    const isDashboardPage = path.startsWith("/dashboard");
-
-    if (isDashboardPage && !user) {
-      const redirectUrl = new URL("/login", request.url);
-      redirectUrl.searchParams.set("next", path);
-      return NextResponse.redirect(redirectUrl);
-    }
-
-    if (isAuthPage && user) {
-      return NextResponse.redirect(new URL("/dashboard", request.url));
-    }
-  } catch {
-    // If Supabase request errors, fail safely
+  // If user already logged in and visits login/register, redirect to dashboard
+  if (isAuthPage && token) {
+    return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  return response;
+  return NextResponse.next();
 }
 
 export const config = {

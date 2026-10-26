@@ -3,7 +3,7 @@ import { generateApiKey, validateApiKey, hashApiKey } from "@/server/security/ap
 import { db } from "@/server/db/unified-db";
 
 describe("API Key Management & Authentication", () => {
-  const testOwner = "user_test_owner_1";
+  const testOwner = "a0000000-0000-0000-0000-000000000001";
 
   it("generates sandbox and production keys with correct prefixes", async () => {
     const sandbox = await generateApiKey({

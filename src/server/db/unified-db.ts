@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { createAdminClient } from "@/lib/supabase/server";
+import { query, queryOne } from "@/server/db/pg-client";
 
 export interface DBProfile {
   id: string;
@@ -139,128 +139,101 @@ export interface DBAuditLog {
   created_at: string;
 }
 
-/**
- * In-memory tables for local development, tests, or fallback when Supabase is not reachable.
- */
-class MemoryDataStore {
-  merchantConnections: DBMerchantConnection[] = [];
-  paymentOrders: DBPaymentOrder[] = [];
-  providerTransactions: DBProviderTransaction[] = [];
-  apiKeys: DBApiKey[] = [];
-  webhookEndpoints: DBWebhookEndpoint[] = [];
-  webhookEvents: DBWebhookEvent[] = [];
-  webhookDeliveries: DBWebhookDelivery[] = [];
-  idempotencyRecords: DBIdempotencyRecord[] = [];
-  syncCursors: DBSyncCursor[] = [];
-  auditLogs: DBAuditLog[] = [];
-}
-
-const memoryStore = new MemoryDataStore();
-
-const hasSupabaseConfig = Boolean(
-  process.env.NEXT_PUBLIC_SUPABASE_URL &&
-  process.env.SUPABASE_SERVICE_ROLE_KEY &&
-  !process.env.NEXT_PUBLIC_SUPABASE_URL.includes("dummy-project")
-);
-
 export const db = {
   // -------------------------------------------------------------
   // Merchant Connections
   // -------------------------------------------------------------
   connections: {
     async getByOwnerId(ownerId: string): Promise<DBMerchantConnection | null> {
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase
-            .from("merchant_connections")
-            .select("*")
-            .eq("owner_id", ownerId)
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          if (!error && data) return data as DBMerchantConnection;
-        } catch {
-          // fallback to memory
-        }
+      try {
+        return await queryOne<DBMerchantConnection>(
+          "SELECT * FROM public.merchant_connections WHERE owner_id = $1 ORDER BY created_at DESC LIMIT 1",
+          [ownerId]
+        );
+      } catch (err) {
+        console.error("DB getByOwnerId error:", err);
+        return null;
       }
-      return memoryStore.merchantConnections.find(c => c.owner_id === ownerId) || null;
     },
 
     async upsert(record: Partial<DBMerchantConnection> & { owner_id: string }): Promise<DBMerchantConnection> {
       const now = new Date().toISOString();
       const existing = await db.connections.getByOwnerId(record.owner_id);
 
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          if (existing) {
-            const { data, error } = await supabase
-              .from("merchant_connections")
-              .update({ ...record, updated_at: now })
-              .eq("id", existing.id)
-              .select()
-              .single();
-            if (!error && data) return data as DBMerchantConnection;
-          } else {
-            const { data, error } = await supabase
-              .from("merchant_connections")
-              .insert({
-                id: crypto.randomUUID(),
-                created_at: now,
-                updated_at: now,
-                provider: "gobiz",
-                status: "NOT_CONNECTED",
-                country_code: "62",
-                ...record,
-              })
-              .select()
-              .single();
-            if (!error && data) return data as DBMerchantConnection;
-          }
-        } catch {
-          // fallback to memory
-        }
-      }
-
       if (existing) {
-        Object.assign(existing, record, { updated_at: now });
-        return existing;
+        const updated = await queryOne<DBMerchantConnection>(
+          `UPDATE public.merchant_connections
+           SET provider = COALESCE($1, provider),
+               merchant_id = COALESCE($2, merchant_id),
+               merchant_name = COALESCE($3, merchant_name),
+               country_code = COALESCE($4, country_code),
+               phone_masked = COALESCE($5, phone_masked),
+               access_token_enc = COALESCE($6, access_token_enc),
+               refresh_token_enc = COALESCE($7, refresh_token_enc),
+               token_expires_at = COALESCE($8, token_expires_at),
+               status = COALESCE($9, status),
+               last_sync_at = COALESCE($10, last_sync_at),
+               last_error_code = COALESCE($11, last_error_code),
+               updated_at = $12
+           WHERE id = $13
+           RETURNING *`,
+          [
+            record.provider || null,
+            record.merchant_id || null,
+            record.merchant_name || null,
+            record.country_code || null,
+            record.phone_masked || null,
+            record.access_token_enc ? JSON.stringify(record.access_token_enc) : null,
+            record.refresh_token_enc ? JSON.stringify(record.refresh_token_enc) : null,
+            record.token_expires_at || null,
+            record.status || null,
+            record.last_sync_at || null,
+            record.last_error_code || null,
+            now,
+            existing.id,
+          ]
+        );
+        return updated!;
       } else {
-        const newRecord: DBMerchantConnection = {
-          id: record.id || crypto.randomUUID(),
-          owner_id: record.owner_id,
-          provider: record.provider || "gobiz",
-          merchant_id: record.merchant_id || null,
-          merchant_name: record.merchant_name || null,
-          country_code: record.country_code || "62",
-          phone_masked: record.phone_masked || null,
-          access_token_enc: record.access_token_enc || null,
-          refresh_token_enc: record.refresh_token_enc || null,
-          token_expires_at: record.token_expires_at || null,
-          status: record.status || "NOT_CONNECTED",
-          last_sync_at: record.last_sync_at || null,
-          last_error_code: record.last_error_code || null,
-          created_at: now,
-          updated_at: now,
-        };
-        memoryStore.merchantConnections.push(newRecord);
-        return newRecord;
+        const id = record.id || crypto.randomUUID();
+        const inserted = await queryOne<DBMerchantConnection>(
+          `INSERT INTO public.merchant_connections (
+             id, owner_id, provider, merchant_id, merchant_name,
+             country_code, phone_masked, access_token_enc, refresh_token_enc,
+             token_expires_at, status, last_sync_at, last_error_code, created_at, updated_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+           RETURNING *`,
+          [
+            id,
+            record.owner_id,
+            record.provider || "gobiz",
+            record.merchant_id || null,
+            record.merchant_name || null,
+            record.country_code || "62",
+            record.phone_masked || null,
+            record.access_token_enc ? JSON.stringify(record.access_token_enc) : null,
+            record.refresh_token_enc ? JSON.stringify(record.refresh_token_enc) : null,
+            record.token_expires_at || null,
+            record.status || "NOT_CONNECTED",
+            record.last_sync_at || null,
+            record.last_error_code || null,
+            now,
+            now,
+          ]
+        );
+        return inserted!;
       }
     },
 
     async listActive(): Promise<DBMerchantConnection[]> {
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase
-            .from("merchant_connections")
-            .select("*")
-            .eq("status", "CONNECTED");
-          if (!error && data) return data as DBMerchantConnection[];
-        } catch {}
+      try {
+        return await query<DBMerchantConnection>(
+          "SELECT * FROM public.merchant_connections WHERE status = 'CONNECTED'"
+        );
+      } catch (err) {
+        console.error("DB listActive error:", err);
+        return [];
       }
-      return memoryStore.merchantConnections.filter(c => c.status === "CONNECTED");
     },
   },
 
@@ -272,105 +245,114 @@ export const db = {
       const now = new Date().toISOString();
       const id = order.id || crypto.randomUUID();
 
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase
-            .from("payment_orders")
-            .insert({ ...order, id, created_at: now, updated_at: now })
-            .select()
-            .single();
-          if (!error && data) return data as DBPaymentOrder;
-        } catch {}
-      }
-
-      const newOrder: DBPaymentOrder = {
-        id,
-        created_at: now,
-        updated_at: now,
-        ...order,
-      };
-      memoryStore.paymentOrders.push(newOrder);
-      return newOrder;
+      const inserted = await queryOne<DBPaymentOrder>(
+        `INSERT INTO public.payment_orders (
+           id, owner_id, connection_id, provider_payment_id, external_id,
+           amount, currency, description, status, qr_string, qr_payload_enc,
+           payment_window_start, payment_window_end, matched_transaction_id, paid_at,
+           created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+         RETURNING *`,
+        [
+          id,
+          order.owner_id,
+          order.connection_id || null,
+          order.provider_payment_id || null,
+          order.external_id,
+          order.amount,
+          order.currency || "IDR",
+          order.description || null,
+          order.status || "PENDING",
+          order.qr_string || null,
+          order.qr_payload_enc ? JSON.stringify(order.qr_payload_enc) : null,
+          order.payment_window_start || now,
+          order.payment_window_end || null,
+          order.matched_transaction_id || null,
+          order.paid_at || null,
+          now,
+          now,
+        ]
+      );
+      return inserted!;
     },
 
     async getById(id: string, ownerId?: string): Promise<DBPaymentOrder | null> {
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          let query = supabase.from("payment_orders").select("*").eq("id", id);
-          if (ownerId) query = query.eq("owner_id", ownerId);
-          const { data, error } = await query.maybeSingle();
-          if (!error && data) return data as DBPaymentOrder;
-        } catch {}
+      try {
+        if (ownerId) {
+          return await queryOne<DBPaymentOrder>(
+            "SELECT * FROM public.payment_orders WHERE id = $1 AND owner_id = $2",
+            [id, ownerId]
+          );
+        }
+        return await queryOne<DBPaymentOrder>(
+          "SELECT * FROM public.payment_orders WHERE id = $1",
+          [id]
+        );
+      } catch (err) {
+        return null;
       }
-
-      return memoryStore.paymentOrders.find(
-        o => o.id === id && (!ownerId || o.owner_id === ownerId)
-      ) || null;
     },
 
     async getByExternalId(externalId: string, ownerId: string): Promise<DBPaymentOrder | null> {
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase
-            .from("payment_orders")
-            .select("*")
-            .eq("external_id", externalId)
-            .eq("owner_id", ownerId)
-            .maybeSingle();
-          if (!error && data) return data as DBPaymentOrder;
-        } catch {}
+      try {
+        return await queryOne<DBPaymentOrder>(
+          "SELECT * FROM public.payment_orders WHERE external_id = $1 AND owner_id = $2",
+          [externalId, ownerId]
+        );
+      } catch (err) {
+        return null;
       }
-
-      return memoryStore.paymentOrders.find(
-        o => o.external_id === externalId && o.owner_id === ownerId
-      ) || null;
     },
 
-    async listByOwner(ownerId: string, options?: {
-      status?: string;
-      limit?: number;
-      offset?: number;
-      from?: string;
-      to?: string;
-    }): Promise<{ orders: DBPaymentOrder[]; total: number }> {
-      const limit = options?.limit || 20;
-      const offset = options?.offset || 0;
-
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          let query = supabase
-            .from("payment_orders")
-            .select("*", { count: "exact" })
-            .eq("owner_id", ownerId);
-
-          if (options?.status) query = query.eq("status", options.status);
-          if (options?.from) query = query.gte("created_at", options.from);
-          if (options?.to) query = query.lte("created_at", options.to);
-
-          const { data, count, error } = await query
-            .order("created_at", { ascending: false })
-            .range(offset, offset + limit - 1);
-
-          if (!error && data) {
-            return { orders: data as DBPaymentOrder[], total: count || data.length };
-          }
-        } catch {}
+    async listByOwner(
+      ownerId: string,
+      options?: {
+        status?: string;
+        limit?: number;
+        offset?: number;
+        from?: string;
+        to?: string;
       }
+    ): Promise<{ orders: DBPaymentOrder[]; total: number }> {
+      try {
+        const limit = options?.limit || 20;
+        const offset = options?.offset || 0;
 
-      let filtered = memoryStore.paymentOrders.filter(o => o.owner_id === ownerId);
-      if (options?.status) filtered = filtered.filter(o => o.status === options.status);
-      if (options?.from) filtered = filtered.filter(o => o.created_at >= options.from!);
-      if (options?.to) filtered = filtered.filter(o => o.created_at <= options.to!);
+        let sql = "SELECT * FROM public.payment_orders WHERE owner_id = $1";
+        const params: any[] = [ownerId];
 
-      filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-      const total = filtered.length;
-      const sliced = filtered.slice(offset, offset + limit);
+        if (options?.status) {
+          params.push(options.status);
+          sql += ` AND status = $${params.length}`;
+        }
+        if (options?.from) {
+          params.push(options.from);
+          sql += ` AND created_at >= $${params.length}`;
+        }
+        if (options?.to) {
+          params.push(options.to);
+          sql += ` AND created_at <= $${params.length}`;
+        }
 
-      return { orders: sliced, total };
+        const countRes = await queryOne<{ count: string }>(
+          sql.replace("SELECT *", "SELECT COUNT(*) as count"),
+          params
+        );
+        const total = parseInt(countRes?.count || "0", 10);
+
+        params.push(limit);
+        const limitParam = params.length;
+        params.push(offset);
+        const offsetParam = params.length;
+
+        sql += ` ORDER BY created_at DESC LIMIT $${limitParam} OFFSET $${offsetParam}`;
+
+        const orders = await query<DBPaymentOrder>(sql, params);
+        return { orders, total };
+      } catch (err) {
+        console.error("DB listByOwner error:", err);
+        return { orders: [], total: 0 };
+      }
     },
 
     async updateStatus(
@@ -382,24 +364,18 @@ export const db = {
       }
     ): Promise<DBPaymentOrder> {
       const now = new Date().toISOString();
-
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase
-            .from("payment_orders")
-            .update({ ...updates, updated_at: now })
-            .eq("id", id)
-            .select()
-            .single();
-          if (!error && data) return data as DBPaymentOrder;
-        } catch {}
-      }
-
-      const order = memoryStore.paymentOrders.find(o => o.id === id);
-      if (!order) throw new Error(`Order ${id} not found.`);
-      Object.assign(order, updates, { updated_at: now });
-      return order;
+      const updated = await queryOne<DBPaymentOrder>(
+        `UPDATE public.payment_orders
+         SET status = $1,
+             paid_at = COALESCE($2, paid_at),
+             matched_transaction_id = COALESCE($3, matched_transaction_id),
+             updated_at = $4
+         WHERE id = $5
+         RETURNING *`,
+        [updates.status, updates.paid_at || null, updates.matched_transaction_id || null, now, id]
+      );
+      if (!updated) throw new Error(`Order ${id} not found.`);
+      return updated;
     },
   },
 
@@ -411,91 +387,68 @@ export const db = {
       const now = new Date().toISOString();
       const id = tx.id || crypto.randomUUID();
 
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase
-            .from("provider_transactions")
-            .upsert(
-              { ...tx, id, created_at: now },
-              { onConflict: "connection_id,provider_transaction_id" }
-            )
-            .select()
-            .single();
-          if (!error && data) return data as DBProviderTransaction;
-        } catch {}
-      }
-
-      const existingIndex = memoryStore.providerTransactions.findIndex(
-        t => t.connection_id === tx.connection_id && t.provider_transaction_id === tx.provider_transaction_id
+      const inserted = await queryOne<DBProviderTransaction>(
+        `INSERT INTO public.provider_transactions (
+           id, connection_id, provider_transaction_id, merchant_id,
+           payable_amount, currency, transaction_status, transaction_time,
+           source, raw_payload, matched_order_id, match_status, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         ON CONFLICT (connection_id, provider_transaction_id) DO UPDATE
+         SET payable_amount = EXCLUDED.payable_amount,
+             transaction_status = EXCLUDED.transaction_status,
+             transaction_time = EXCLUDED.transaction_time,
+             raw_payload = EXCLUDED.raw_payload
+         RETURNING *`,
+        [
+          id,
+          tx.connection_id,
+          tx.provider_transaction_id,
+          tx.merchant_id,
+          tx.payable_amount,
+          tx.currency || "IDR",
+          tx.transaction_status,
+          tx.transaction_time,
+          tx.source,
+          tx.raw_payload ? JSON.stringify(tx.raw_payload) : null,
+          tx.matched_order_id || null,
+          tx.match_status || "UNMATCHED",
+          now,
+        ]
       );
-
-      if (existingIndex >= 0) {
-        const updated = { ...memoryStore.providerTransactions[existingIndex], ...tx };
-        memoryStore.providerTransactions[existingIndex] = updated;
-        return updated;
-      } else {
-        const newTx: DBProviderTransaction = { id, created_at: now, ...tx };
-        memoryStore.providerTransactions.push(newTx);
-        return newTx;
-      }
+      return inserted!;
     },
 
     async listByConnection(connectionId: string, limit = 50): Promise<DBProviderTransaction[]> {
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase
-            .from("provider_transactions")
-            .select("*")
-            .eq("connection_id", connectionId)
-            .order("transaction_time", { ascending: false })
-            .limit(limit);
-          if (!error && data) return data as DBProviderTransaction[];
-        } catch {}
+      try {
+        return await query<DBProviderTransaction>(
+          "SELECT * FROM public.provider_transactions WHERE connection_id = $1 ORDER BY transaction_time DESC LIMIT $2",
+          [connectionId, limit]
+        );
+      } catch (err) {
+        return [];
       }
-
-      return memoryStore.providerTransactions
-        .filter(t => t.connection_id === connectionId)
-        .sort((a, b) => new Date(b.transaction_time).getTime() - new Date(a.transaction_time).getTime())
-        .slice(0, limit);
     },
 
     async listUnmatched(connectionId: string): Promise<DBProviderTransaction[]> {
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase
-            .from("provider_transactions")
-            .select("*")
-            .eq("connection_id", connectionId)
-            .eq("match_status", "UNMATCHED")
-            .eq("transaction_status", "SUCCESS");
-          if (!error && data) return data as DBProviderTransaction[];
-        } catch {}
+      try {
+        return await query<DBProviderTransaction>(
+          `SELECT * FROM public.provider_transactions 
+           WHERE connection_id = $1 AND match_status = 'UNMATCHED' AND transaction_status = 'SUCCESS'`,
+          [connectionId]
+        );
+      } catch (err) {
+        return [];
       }
-
-      return memoryStore.providerTransactions.filter(
-        t => t.connection_id === connectionId && t.match_status === "UNMATCHED" && t.transaction_status === "SUCCESS"
-      );
     },
 
     async markMatched(id: string, orderId: string, status: "MATCHED" | "CONFLICT" = "MATCHED") {
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          await supabase
-            .from("provider_transactions")
-            .update({ matched_order_id: orderId, match_status: status })
-            .eq("id", id);
-          return;
-        } catch {}
-      }
-
-      const tx = memoryStore.providerTransactions.find(t => t.id === id);
-      if (tx) {
-        tx.matched_order_id = orderId;
-        tx.match_status = status;
+      try {
+        await query(
+          "UPDATE public.provider_transactions SET matched_order_id = $1, match_status = $2 WHERE id = $3",
+          [orderId, status, id]
+        );
+      } catch (err) {
+        console.error("DB markMatched error:", err);
       }
     },
   },
@@ -507,94 +460,66 @@ export const db = {
     async create(key: Omit<DBApiKey, "id" | "created_at" | "last_used_at" | "revoked_at">): Promise<DBApiKey> {
       const now = new Date().toISOString();
       const id = crypto.randomUUID();
-      const record: DBApiKey = {
-        id,
-        created_at: now,
-        last_used_at: null,
-        revoked_at: null,
-        ...key,
-      };
 
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase.from("api_keys").insert(record).select().single();
-          if (!error && data) return data as DBApiKey;
-        } catch {}
-      }
-
-      memoryStore.apiKeys.push(record);
-      return record;
+      const inserted = await queryOne<DBApiKey>(
+        `INSERT INTO public.api_keys (
+           id, owner_id, name, key_prefix, key_hash, environment, permissions, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING *`,
+        [
+          id,
+          key.owner_id,
+          key.name,
+          key.key_prefix,
+          key.key_hash,
+          key.environment,
+          JSON.stringify(key.permissions || ["payments:read", "payments:write"]),
+          now,
+        ]
+      );
+      return inserted!;
     },
 
     async findByHash(keyHash: string): Promise<DBApiKey | null> {
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase
-            .from("api_keys")
-            .select("*")
-            .eq("key_hash", keyHash)
-            .maybeSingle();
-          if (!error && data) return data as DBApiKey;
-        } catch {}
+      try {
+        return await queryOne<DBApiKey>(
+          "SELECT * FROM public.api_keys WHERE key_hash = $1 LIMIT 1",
+          [keyHash]
+        );
+      } catch (err) {
+        return null;
       }
-
-      return memoryStore.apiKeys.find(k => k.key_hash === keyHash) || null;
     },
 
     async listByOwner(ownerId: string): Promise<DBApiKey[]> {
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase
-            .from("api_keys")
-            .select("*")
-            .eq("owner_id", ownerId)
-            .order("created_at", { ascending: false });
-          if (!error && data) return data as DBApiKey[];
-        } catch {}
+      try {
+        return await query<DBApiKey>(
+          "SELECT * FROM public.api_keys WHERE owner_id = $1 ORDER BY created_at DESC",
+          [ownerId]
+        );
+      } catch (err) {
+        return [];
       }
-
-      return memoryStore.apiKeys
-        .filter(k => k.owner_id === ownerId)
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     },
 
     async revoke(id: string, ownerId: string): Promise<boolean> {
-      const now = new Date().toISOString();
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { error } = await supabase
-            .from("api_keys")
-            .update({ revoked_at: now })
-            .eq("id", id)
-            .eq("owner_id", ownerId);
-          return !error;
-        } catch {}
-      }
-
-      const key = memoryStore.apiKeys.find(k => k.id === id && k.owner_id === ownerId);
-      if (key) {
-        key.revoked_at = now;
+      try {
+        const now = new Date().toISOString();
+        const res = await query(
+          "UPDATE public.api_keys SET revoked_at = $1 WHERE id = $2 AND owner_id = $3",
+          [now, id, ownerId]
+        );
         return true;
+      } catch (err) {
+        return false;
       }
-      return false;
     },
 
     async updateLastUsed(id: string): Promise<void> {
-      const now = new Date().toISOString();
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          await supabase.from("api_keys").update({ last_used_at: now }).eq("id", id);
-          return;
-        } catch {}
-      }
-
-      const key = memoryStore.apiKeys.find(k => k.id === id);
-      if (key) key.last_used_at = now;
+      try {
+        const now = new Date().toISOString();
+        await query("UPDATE public.api_keys SET last_used_at = $1 WHERE id = $2", [now, id]);
+      } catch (err) {}
     },
   },
 
@@ -605,125 +530,115 @@ export const db = {
     async createEndpoint(endpoint: Omit<DBWebhookEndpoint, "id" | "created_at" | "updated_at">): Promise<DBWebhookEndpoint> {
       const now = new Date().toISOString();
       const id = crypto.randomUUID();
-      const record: DBWebhookEndpoint = { id, created_at: now, updated_at: now, ...endpoint };
 
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase.from("webhook_endpoints").insert(record).select().single();
-          if (!error && data) return data as DBWebhookEndpoint;
-        } catch {}
-      }
-
-      memoryStore.webhookEndpoints.push(record);
-      return record;
+      const inserted = await queryOne<DBWebhookEndpoint>(
+        `INSERT INTO public.webhook_endpoints (
+           id, owner_id, url, signing_secret_enc, signing_secret_preview, enabled, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING *`,
+        [
+          id,
+          endpoint.owner_id,
+          endpoint.url,
+          JSON.stringify(endpoint.signing_secret_enc),
+          endpoint.signing_secret_preview,
+          endpoint.enabled ?? true,
+          now,
+          now,
+        ]
+      );
+      return inserted!;
     },
 
     async listEndpoints(ownerId: string): Promise<DBWebhookEndpoint[]> {
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase
-            .from("webhook_endpoints")
-            .select("*")
-            .eq("owner_id", ownerId)
-            .order("created_at", { ascending: false });
-          if (!error && data) return data as DBWebhookEndpoint[];
-        } catch {}
+      try {
+        return await query<DBWebhookEndpoint>(
+          "SELECT * FROM public.webhook_endpoints WHERE owner_id = $1 ORDER BY created_at DESC",
+          [ownerId]
+        );
+      } catch (err) {
+        return [];
       }
-
-      return memoryStore.webhookEndpoints.filter(e => e.owner_id === ownerId);
     },
 
     async deleteEndpoint(id: string, ownerId: string): Promise<boolean> {
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { error } = await supabase.from("webhook_endpoints").delete().eq("id", id).eq("owner_id", ownerId);
-          return !error;
-        } catch {}
-      }
-
-      const idx = memoryStore.webhookEndpoints.findIndex(e => e.id === id && e.owner_id === ownerId);
-      if (idx >= 0) {
-        memoryStore.webhookEndpoints.splice(idx, 1);
+      try {
+        await query(
+          "DELETE FROM public.webhook_endpoints WHERE id = $1 AND owner_id = $2",
+          [id, ownerId]
+        );
         return true;
+      } catch (err) {
+        return false;
       }
-      return false;
     },
 
     async createEvent(event: Omit<DBWebhookEvent, "id" | "created_at">): Promise<DBWebhookEvent> {
       const now = new Date().toISOString();
       const id = crypto.randomUUID();
-      const record: DBWebhookEvent = { id, created_at: now, ...event };
 
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase.from("webhook_events").insert(record).select().single();
-          if (!error && data) return data as DBWebhookEvent;
-        } catch {}
-      }
-
-      memoryStore.webhookEvents.push(record);
-      return record;
+      const inserted = await queryOne<DBWebhookEvent>(
+        `INSERT INTO public.webhook_events (id, owner_id, event_type, resource_id, payload, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [
+          id,
+          event.owner_id,
+          event.event_type,
+          event.resource_id || null,
+          JSON.stringify(event.payload),
+          now,
+        ]
+      );
+      return inserted!;
     },
 
     async listEvents(ownerId: string, limit = 50): Promise<DBWebhookEvent[]> {
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase
-            .from("webhook_events")
-            .select("*")
-            .eq("owner_id", ownerId)
-            .order("created_at", { ascending: false })
-            .limit(limit);
-          if (!error && data) return data as DBWebhookEvent[];
-        } catch {}
+      try {
+        return await query<DBWebhookEvent>(
+          "SELECT * FROM public.webhook_events WHERE owner_id = $1 ORDER BY created_at DESC LIMIT $2",
+          [ownerId, limit]
+        );
+      } catch (err) {
+        return [];
       }
-
-      return memoryStore.webhookEvents
-        .filter(e => e.owner_id === ownerId)
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        .slice(0, limit);
     },
 
     async recordDelivery(delivery: Omit<DBWebhookDelivery, "id" | "created_at">): Promise<DBWebhookDelivery> {
       const now = new Date().toISOString();
       const id = crypto.randomUUID();
-      const record: DBWebhookDelivery = { id, created_at: now, ...delivery };
 
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase.from("webhook_deliveries").insert(record).select().single();
-          if (!error && data) return data as DBWebhookDelivery;
-        } catch {}
-      }
-
-      memoryStore.webhookDeliveries.push(record);
-      return record;
+      const inserted = await queryOne<DBWebhookDelivery>(
+        `INSERT INTO public.webhook_deliveries (
+           id, endpoint_id, event_id, attempt_count, http_status, response_excerpt,
+           error_message, next_attempt_at, delivered_at, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         RETURNING *`,
+        [
+          id,
+          delivery.endpoint_id,
+          delivery.event_id,
+          delivery.attempt_count || 1,
+          delivery.http_status || null,
+          delivery.response_excerpt || null,
+          delivery.error_message || null,
+          delivery.next_attempt_at || null,
+          delivery.delivered_at || null,
+          now,
+        ]
+      );
+      return inserted!;
     },
 
     async listDeliveries(endpointId: string, limit = 50): Promise<DBWebhookDelivery[]> {
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase
-            .from("webhook_deliveries")
-            .select("*")
-            .eq("endpoint_id", endpointId)
-            .order("created_at", { ascending: false })
-            .limit(limit);
-          if (!error && data) return data as DBWebhookDelivery[];
-        } catch {}
+      try {
+        return await query<DBWebhookDelivery>(
+          "SELECT * FROM public.webhook_deliveries WHERE endpoint_id = $1 ORDER BY created_at DESC LIMIT $2",
+          [endpointId, limit]
+        );
+      } catch (err) {
+        return [];
       }
-
-      return memoryStore.webhookDeliveries
-        .filter(d => d.endpoint_id === endpointId)
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        .slice(0, limit);
     },
   },
 
@@ -732,39 +647,40 @@ export const db = {
   // -------------------------------------------------------------
   idempotency: {
     async get(ownerId: string, idempotencyKey: string): Promise<DBIdempotencyRecord | null> {
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase
-            .from("idempotency_records")
-            .select("*")
-            .eq("owner_id", ownerId)
-            .eq("idempotency_key", idempotencyKey)
-            .maybeSingle();
-          if (!error && data) return data as DBIdempotencyRecord;
-        } catch {}
+      try {
+        return await queryOne<DBIdempotencyRecord>(
+          "SELECT * FROM public.idempotency_records WHERE owner_id = $1 AND idempotency_key = $2",
+          [ownerId, idempotencyKey]
+        );
+      } catch (err) {
+        return null;
       }
-
-      return memoryStore.idempotencyRecords.find(
-        r => r.owner_id === ownerId && r.idempotency_key === idempotencyKey
-      ) || null;
     },
 
     async create(record: Omit<DBIdempotencyRecord, "id" | "created_at">): Promise<DBIdempotencyRecord> {
       const now = new Date().toISOString();
       const id = crypto.randomUUID();
-      const newRec: DBIdempotencyRecord = { id, created_at: now, ...record };
 
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase.from("idempotency_records").insert(newRec).select().single();
-          if (!error && data) return data as DBIdempotencyRecord;
-        } catch {}
-      }
-
-      memoryStore.idempotencyRecords.push(newRec);
-      return newRec;
+      const inserted = await queryOne<DBIdempotencyRecord>(
+        `INSERT INTO public.idempotency_records (
+           id, owner_id, idempotency_key, request_fingerprint, status,
+           response_code, response_body, resource_id, expires_at, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         RETURNING *`,
+        [
+          id,
+          record.owner_id,
+          record.idempotency_key,
+          record.request_fingerprint,
+          record.status || "PROCESSING",
+          record.response_code || null,
+          record.response_body ? JSON.stringify(record.response_body) : null,
+          record.resource_id || null,
+          record.expires_at,
+          now,
+        ]
+      );
+      return inserted!;
     },
 
     async complete(
@@ -774,31 +690,18 @@ export const db = {
       responseBody: any,
       resourceId?: string
     ): Promise<void> {
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          await supabase
-            .from("idempotency_records")
-            .update({
-              status: "COMPLETED",
-              response_code: responseCode,
-              response_body: responseBody,
-              resource_id: resourceId,
-            })
-            .eq("owner_id", ownerId)
-            .eq("idempotency_key", idempotencyKey);
-          return;
-        } catch {}
-      }
-
-      const rec = memoryStore.idempotencyRecords.find(
-        r => r.owner_id === ownerId && r.idempotency_key === idempotencyKey
-      );
-      if (rec) {
-        rec.status = "COMPLETED";
-        rec.response_code = responseCode;
-        rec.response_body = responseBody;
-        rec.resource_id = resourceId || null;
+      try {
+        await query(
+          `UPDATE public.idempotency_records 
+           SET status = 'COMPLETED',
+               response_code = $1,
+               response_body = $2,
+               resource_id = COALESCE($3, resource_id)
+           WHERE owner_id = $4 AND idempotency_key = $5`,
+          [responseCode, JSON.stringify(responseBody), resourceId || null, ownerId, idempotencyKey]
+        );
+      } catch (err) {
+        console.error("DB complete idempotency error:", err);
       }
     },
   },
@@ -808,51 +711,31 @@ export const db = {
   // -------------------------------------------------------------
   cursors: {
     async get(connectionId: string): Promise<DBSyncCursor | null> {
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          const { data, error } = await supabase
-            .from("sync_cursors")
-            .select("*")
-            .eq("connection_id", connectionId)
-            .maybeSingle();
-          if (!error && data) return data as DBSyncCursor;
-        } catch {}
+      try {
+        return await queryOne<DBSyncCursor>(
+          "SELECT * FROM public.sync_cursors WHERE connection_id = $1",
+          [connectionId]
+        );
+      } catch (err) {
+        return null;
       }
-
-      return memoryStore.syncCursors.find(c => c.connection_id === connectionId) || null;
     },
 
     async update(connectionId: string, provider: string, cursor: string | null, syncTime: string): Promise<void> {
       const now = new Date().toISOString();
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          await supabase.from("sync_cursors").upsert({
-            connection_id: connectionId,
-            provider,
-            last_cursor: cursor,
-            last_sync_time: syncTime,
-            updated_at: now,
-          }, { onConflict: "connection_id" });
-          return;
-        } catch {}
-      }
-
-      const existing = memoryStore.syncCursors.find(c => c.connection_id === connectionId);
-      if (existing) {
-        existing.last_cursor = cursor;
-        existing.last_sync_time = syncTime;
-        existing.updated_at = now;
-      } else {
-        memoryStore.syncCursors.push({
-          id: crypto.randomUUID(),
-          connection_id: connectionId,
-          provider,
-          last_cursor: cursor,
-          last_sync_time: syncTime,
-          updated_at: now,
-        });
+      try {
+        await query(
+          `INSERT INTO public.sync_cursors (connection_id, provider, last_cursor, last_sync_time, updated_at)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (connection_id) DO UPDATE
+           SET provider = EXCLUDED.provider,
+               last_cursor = EXCLUDED.last_cursor,
+               last_sync_time = EXCLUDED.last_sync_time,
+               updated_at = EXCLUDED.updated_at`,
+          [connectionId, provider, cursor, syncTime, now]
+        );
+      } catch (err) {
+        console.error("DB update cursor error:", err);
       }
     },
   },
@@ -862,40 +745,34 @@ export const db = {
   // -------------------------------------------------------------
   audit: {
     async log(action: string, ownerId: string | null, details: any, ipAddress?: string | null): Promise<void> {
-      const record: DBAuditLog = {
-        id: crypto.randomUUID(),
-        owner_id: ownerId,
-        action,
-        details,
-        ip_address: ipAddress || null,
-        created_at: new Date().toISOString(),
-      };
-
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          await supabase.from("audit_logs").insert(record);
-          return;
-        } catch {}
+      const id = crypto.randomUUID();
+      const now = new Date().toISOString();
+      try {
+        await query(
+          `INSERT INTO public.audit_logs (id, owner_id, action, details, ip_address, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [id, ownerId, action, JSON.stringify(details), ipAddress || null, now]
+        );
+      } catch (err) {
+        console.error("DB audit.log error:", err);
       }
-
-      memoryStore.auditLogs.push(record);
     },
 
     async list(ownerId?: string, limit = 50): Promise<DBAuditLog[]> {
-      if (hasSupabaseConfig) {
-        try {
-          const supabase = createAdminClient();
-          let query = supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(limit);
-          if (ownerId) query = query.eq("owner_id", ownerId);
-          const { data, error } = await query;
-          if (!error && data) return data as DBAuditLog[];
-        } catch {}
+      try {
+        if (ownerId) {
+          return await query<DBAuditLog>(
+            "SELECT * FROM public.audit_logs WHERE owner_id = $1 ORDER BY created_at DESC LIMIT $2",
+            [ownerId, limit]
+          );
+        }
+        return await query<DBAuditLog>(
+          "SELECT * FROM public.audit_logs ORDER BY created_at DESC LIMIT $1",
+          [limit]
+        );
+      } catch (err) {
+        return [];
       }
-
-      let logs = memoryStore.auditLogs;
-      if (ownerId) logs = logs.filter(l => l.owner_id === ownerId);
-      return logs.slice().reverse().slice(0, limit);
     },
   },
 };

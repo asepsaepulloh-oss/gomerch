@@ -3,30 +3,19 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { ShieldCheck, Mail, ArrowLeft, ArrowRight, CheckCircle2 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
     setLoading(true);
-
-    try {
-      const supabase = createClient();
-      await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/callback?next=/dashboard/settings`,
-      });
+    setTimeout(() => {
       setSubmitted(true);
-    } catch {
-      setSubmitted(true);
-    } finally {
       setLoading(false);
-    }
+    }, 600);
   };
 
   return (
@@ -59,11 +48,6 @@ export default function ForgotPasswordPage() {
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-5">
-            {error && (
-              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-300 text-xs">
-                {error}
-              </div>
-            )}
             <div>
               <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
                 Email Terdaftar

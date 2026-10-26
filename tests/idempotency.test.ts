@@ -7,8 +7,8 @@ import {
 } from "@/server/security/idempotency";
 
 describe("Idempotency Engine", () => {
-  const ownerId = "owner_idemp_test";
-  const idempotencyKey = "key_req_0001";
+  const ownerId = "b0000000-0000-0000-0000-000000000001";
+  const idempotencyKey = `key_req_${Date.now()}`;
   const payloadA = { external_id: "ORD-01", amount: 10000 };
   const payloadB = { external_id: "ORD-01", amount: 20000 }; // different amount
 
