@@ -80,7 +80,7 @@ export default function PaymentsPage() {
         const createKeyRes = await fetch("/api/dashboard/api-keys", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: "Default Key", environment: "sandbox" }),
+          body: JSON.stringify({ name: "Production Key", environment: "production" }),
         });
         const createKeyData = await createKeyRes.json();
         activeKey = createKeyData.data?.api_key;

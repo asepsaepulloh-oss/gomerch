@@ -27,8 +27,8 @@ export default function ApiKeysPage() {
   const [keys, setKeys] = useState<ApiKeyItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [keyName, setKeyName] = useState("Aplikasi Web / Toko Online");
-  const [keyEnv, setKeyEnv] = useState<"sandbox" | "production">("sandbox");
+  const [keyName, setKeyName] = useState("API Key Production");
+  const [keyEnv, setKeyEnv] = useState<"sandbox" | "production">("production");
   const [creating, setCreating] = useState(false);
   const [newKeySecret, setNewKeySecret] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);

@@ -68,17 +68,17 @@ export function DashboardSidebar() {
         })}
       </nav>
 
-      {/* Sandbox badge & footer */}
+      {/* Production badge & footer */}
       <div className="p-4 border-t border-slate-800">
         <div className="p-3 bg-slate-800/80 rounded-xl border border-slate-700/60">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[11px] font-semibold text-slate-300">Environment</span>
             <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-mono font-semibold">
-              SANDBOX
+              PRODUCTION
             </span>
           </div>
           <p className="text-[11px] text-slate-400 leading-tight">
-            Mode pengujian aktif. Transaksi & QRIS berjalan aman dalam sandbox.
+            Mode langsung aktif. Mengakses GoBiz API Gateway & transaksi riil.
           </p>
         </div>
       </div>

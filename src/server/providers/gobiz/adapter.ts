@@ -12,6 +12,7 @@ import {
 
 const BASE_URL = process.env.GOBIZ_API_BASE_URL || "https://api.gobiz.co.id";
 const CLIENT_ID = process.env.GOBIZ_CLIENT_ID || "go-biz-web-new";
+// Production mode is default unless explicitly set to "true"
 const USE_MOCK_GOBIZ = process.env.USE_MOCK_GOBIZ === "true";
 
 function generateUUID(): string {
