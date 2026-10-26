@@ -225,19 +225,23 @@ export function verifyWebhook(rawBody, signatureHeader, timestampHeader, secret)
 
 ## 9. Vercel Cron & Background Worker
 
-Untuk menjalankan sinkronisasi terjadwal:
-1. Daftarkan cron job pada `vercel.json`:
-   ```json
-   {
-     "crons": [
-       {
-         "path": "/api/cron/sync",
-         "schedule": "*/5 * * * *"
-       }
-     ]
-   }
-   ```
-2. Tetapkan `CRON_SECRET` pada environment Vercel. Endpoint `/api/cron/sync` memvalidasi header `Authorization: Bearer <CRON_SECRET>` untuk mencegah akses tak berizin.
+Untuk akun **Vercel Hobby (Free plan)**, Vercel membatasi jadwal cron maksimal 1 kali per hari (Daily):
+```json
+{
+  "crons": [
+    {
+      "path": "/api/cron/sync",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}
+```
+
+> **Tips Frekuensi Tinggi Tanpa Vercel Pro:**
+> Jika Anda memerlukan sinkronisasi tiap 5 menit atau 1 menit tanpa membayar Vercel Pro, Anda dapat menggunakan layanan cron gratis eksternal seperti:
+> - **[cron-job.org](https://cron-job.org)** (100% Gratis, mendukung frekuensi tiap 1 menit)
+> - **GitHub Actions** (Workflow scheduled cron)
+> - Cukup tembak URL: `https://domain-anda.vercel.app/api/cron/sync` dengan header `Authorization: Bearer <CRON_SECRET>`.
 
 ---
 
