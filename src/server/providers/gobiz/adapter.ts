@@ -444,15 +444,19 @@ export class GobizTransactionProvider implements TransactionProvider {
 
         const items: ProviderTransactionItem[] = transactions.map((tx: any) => {
           const rawAmount = typeof tx.gross_amount === "number" ? tx.gross_amount / 100 : Number(tx.gross_amount || 0);
+          const rawStatus = (tx.transaction_status || tx.status || "").toUpperCase();
+          const isSuccess =
+            rawStatus === "SETTLEMENT" ||
+            rawStatus === "CAPTURE" ||
+            rawStatus === "SUCCESS" ||
+            rawStatus === "SETTLED";
+
           return {
             id: tx.transaction_id || tx.id || tx.order_id,
             merchantId: input.merchantId,
             payableAmount: rawAmount,
             currency: "IDR",
-            transactionStatus:
-              tx.status === "SETTLEMENT" || tx.status === "CAPTURE" || tx.status === "SUCCESS"
-                ? "SUCCESS"
-                : "PENDING",
+            transactionStatus: isSuccess ? "SUCCESS" : "PENDING",
             transactionTime: tx.transaction_time || new Date().toISOString(),
             source: "GOBIZ_ANALYTICS" as const,
             rawPayload: tx,
