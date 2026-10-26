@@ -4,14 +4,21 @@ import { runGlobalSyncWorker } from "@/server/services/sync-worker";
 export async function GET(req: NextRequest) {
   try {
     const authHeader = req.headers.get("authorization");
+    const { searchParams } = new URL(req.url);
+    const keyParam = searchParams.get("key");
     const cronSecret = process.env.CRON_SECRET;
 
-    // Verify CRON_SECRET if configured
+    // Verify CRON_SECRET if configured (supports Authorization header OR ?key= query parameter)
     if (cronSecret) {
-      const expected = `Bearer ${cronSecret}`;
-      if (authHeader !== expected) {
+      const isHeaderValid = authHeader === `Bearer ${cronSecret}`;
+      const isQueryValid = keyParam === cronSecret;
+
+      if (!isHeaderValid && !isQueryValid) {
         return NextResponse.json(
-          { success: false, error: "Unauthorized cron execution." },
+          {
+            success: false,
+            error: "Unauthorized cron execution. Gunakan header Authorization: Bearer <CRON_SECRET> atau parameter URL ?key=<CRON_SECRET>.",
+          },
           { status: 401 }
         );
       }

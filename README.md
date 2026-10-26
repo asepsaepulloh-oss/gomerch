@@ -223,25 +223,18 @@ export function verifyWebhook(rawBody, signatureHeader, timestampHeader, secret)
 
 ---
 
-## 9. Vercel Cron & Background Worker
+## 9. Background Worker via cron-job.org (100% Gratis)
 
-Untuk akun **Vercel Hobby (Free plan)**, Vercel membatasi jadwal cron maksimal 1 kali per hari (Daily):
-```json
-{
-  "crons": [
-    {
-      "path": "/api/cron/sync",
-      "schedule": "0 0 * * *"
-    }
-  ]
-}
-```
+Untuk menjalankan sinkronisasi otomatis secara berkala (misal: setiap 1 menit atau 5 menit) tanpa batasan Vercel Hobby dan tanpa Vercel Pro:
 
-> **Tips Frekuensi Tinggi Tanpa Vercel Pro:**
-> Jika Anda memerlukan sinkronisasi tiap 5 menit atau 1 menit tanpa membayar Vercel Pro, Anda dapat menggunakan layanan cron gratis eksternal seperti:
-> - **[cron-job.org](https://cron-job.org)** (100% Gratis, mendukung frekuensi tiap 1 menit)
-> - **GitHub Actions** (Workflow scheduled cron)
-> - Cukup tembak URL: `https://domain-anda.vercel.app/api/cron/sync` dengan header `Authorization: Bearer <CRON_SECRET>`.
+1. Buka [https://cron-job.org](https://cron-job.org) dan buat akun gratis.
+2. Klik **Create Cronjob**:
+   - **Title:** `Sync GoBiz & QRIS Matcher`
+   - **URL:** `https://<domain-anda>.vercel.app/api/cron/sync?key=<CRON_SECRET>`
+     *(Atau gunakan header `Authorization: Bearer <CRON_SECRET>` di tab Advanced/Headers)*
+   - **Execution schedule:** `Every 1 minute` atau `Every 5 minutes`
+   - **Request Method:** `GET`
+3. Simpan. Transaksi GoBiz dan pencocokan QRIS dinamis Anda akan otomatis berjalan di latar belakang setiap interval waktu yang dipilih.
 
 ---
 
