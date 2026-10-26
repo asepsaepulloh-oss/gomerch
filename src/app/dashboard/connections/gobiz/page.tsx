@@ -20,8 +20,8 @@ export default function GobizConnectionPage() {
   const [submitting, setSubmitting] = useState(false);
   const [connection, setConnection] = useState<any>(null);
 
-  // Tab: 'otp' | 'password'
-  const [method, setMethod] = useState<"otp" | "password">("otp");
+  // Tab: 'otp' | 'password' | 'token' | 'import'
+  const [method, setMethod] = useState<"otp" | "password" | "token" | "import">("otp");
 
   // OTP Form states
   const [step, setStep] = useState<"phone" | "otp">("phone");
@@ -33,6 +33,13 @@ export default function GobizConnectionPage() {
   // Password Form states
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
+  // Direct Token Form states
+  const [tokenInput, setTokenInput] = useState("");
+  const [merchantIdManual, setMerchantIdManual] = useState("");
+
+  // JSON Import state
+  const [jsonInput, setJsonInput] = useState("");
 
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -138,6 +145,77 @@ export default function GobizConnectionPage() {
       setSuccessMsg("Akun GoBiz berhasil terhubung via Email & Password!");
       setEmail("");
       setPassword("");
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleTokenLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccessMsg(null);
+    setSubmitting(true);
+
+    try {
+      const res = await fetch("/api/auth/gobiz/token-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          access_token: tokenInput,
+          merchant_id: merchantIdManual || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Gagal menghubungkan Access Token.");
+      }
+
+      setConnection(data.data);
+      setSuccessMsg(data.message || "Akun GoBiz berhasil terhubung via Access Token!");
+      setTokenInput("");
+      setMerchantIdManual("");
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleImportJson = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccessMsg(null);
+    setSubmitting(true);
+
+    try {
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonInput);
+      } catch {
+        throw new Error("Format JSON tidak valid. Pastikan data berformat JSON utuh.");
+      }
+
+      const txList = Array.isArray(parsed) ? parsed : parsed.transactions || [];
+      if (txList.length === 0) {
+        throw new Error("Tidak ada transaksi yang ditemukan di dalam payload JSON.");
+      }
+
+      const res = await fetch("/api/auth/gobiz/import-transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transactions: txList }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Gagal mengimpor transaksi.");
+      }
+
+      setSuccessMsg(data.message);
+      setJsonInput("");
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -275,21 +353,21 @@ export default function GobizConnectionPage() {
         <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-xs">
           <div className="max-w-md mx-auto">
             {/* Login Method Selector Tabs */}
-            <div className="flex p-1 bg-slate-100 rounded-xl mb-6">
+            <div className="flex p-1 bg-slate-100 rounded-xl mb-6 flex-wrap gap-1">
               <button
                 type="button"
                 onClick={() => {
                   setMethod("otp");
                   setError(null);
                 }}
-                className={`flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                className={`flex-1 min-w-[130px] py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                   method === "otp"
                     ? "bg-white text-indigo-600 shadow-sm"
                     : "text-slate-600 hover:text-slate-900"
                 }`}
               >
                 <Smartphone className="w-3.5 h-3.5" />
-                <span>Nomor HP + OTP (Direkomendasikan)</span>
+                <span>Nomor HP + OTP</span>
               </button>
               <button
                 type="button"
@@ -297,7 +375,7 @@ export default function GobizConnectionPage() {
                   setMethod("password");
                   setError(null);
                 }}
-                className={`flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                className={`flex-1 min-w-[130px] py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                   method === "password"
                     ? "bg-white text-indigo-600 shadow-sm"
                     : "text-slate-600 hover:text-slate-900"
@@ -305,6 +383,36 @@ export default function GobizConnectionPage() {
               >
                 <Mail className="w-3.5 h-3.5" />
                 <span>Email & Password</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMethod("token");
+                  setError(null);
+                }}
+                className={`flex-1 min-w-[130px] py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  method === "token"
+                    ? "bg-white text-indigo-600 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                <span>Access Token</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMethod("import");
+                  setError(null);
+                }}
+                className={`flex-1 min-w-[130px] py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  method === "import"
+                    ? "bg-white text-indigo-600 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Import JSON</span>
               </button>
             </div>
 
@@ -469,6 +577,111 @@ export default function GobizConnectionPage() {
                     ) : (
                       <>
                         <span>Masuk & Hubungkan GoBiz</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
+              </>
+            )}
+
+            {/* METHOD 3: ACCESS TOKEN MANUAL */}
+            {method === "token" && (
+              <>
+                <div className="text-center mb-6">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-3 shadow-inner">
+                    <KeyRound className="w-6 h-6" />
+                  </div>
+                  <h2 className="text-lg font-bold text-slate-900">Hubungkan via Access Token</h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Masukkan Bearer Access Token GoBiz yang didapat dari Puppeteer atau browser inspeksi portal GoFood.
+                  </p>
+                </div>
+
+                <form onSubmit={handleTokenLogin} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
+                      Access Token (Bearer)
+                    </label>
+                    <textarea
+                      required
+                      rows={3}
+                      value={tokenInput}
+                      onChange={(e) => setTokenInput(e.target.value)}
+                      placeholder="eyJhbGciOiJSUzI1NiIsInR5cCI6..."
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-mono text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
+                      Merchant ID (Opsional jika ingin override)
+                    </label>
+                    <input
+                      type="text"
+                      value={merchantIdManual}
+                      onChange={(e) => setMerchantIdManual(e.target.value)}
+                      placeholder="M-XXXXXXXX atau GBZ-..."
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    {submitting ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <span>Simpan & Aktifkan Token</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
+              </>
+            )}
+
+            {/* METHOD 4: IMPORT JSON DARI SCRAPER */}
+            {method === "import" && (
+              <>
+                <div className="text-center mb-6">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-3 shadow-inner">
+                    <RefreshCw className="w-6 h-6" />
+                  </div>
+                  <h2 className="text-lg font-bold text-slate-900">Import Transaksi JSON</h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Salin & tempel output JSON hasil scraper Puppeteer portal GoFood untuk pencocokan otomatis instan.
+                  </p>
+                </div>
+
+                <form onSubmit={handleImportJson} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
+                      JSON Payload Transaksi
+                    </label>
+                    <textarea
+                      required
+                      rows={6}
+                      value={jsonInput}
+                      onChange={(e) => setJsonInput(e.target.value)}
+                      placeholder='{ "transactions": [ { "idPesanan": "GF-001", "penjualanKotor": "Rp 25.000", ... } ] }'
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-mono text-[11px] focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    {submitting ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <span>Proses & Cocokkan Transaksi</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
